@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Pixel Art Service{% endblock %}
+
+{% block content %}
+<h1 class="welcome">Привет, {{ username }}!</h1>
+
+<h2>Профиль</h2>
+
+<div class="description-text">
+    {% if description %}
+        {{ description }}
+    {% else %}
+        <em>Нет описания. Добавьте его ниже!</em>
+    {% endif %}
+</div>
+
+<form method="POST" action="{{ url_for('routes.update_profile') }}">
+    <div class="form-group">
+        <label for="description">Обновить описание:</label>
+        <textarea id="description" name="description" placeholder="Расскажите о себе...">{{ description }}</textarea>
+    </div>
+    
+    <button type="submit">Сохранить</button>
+</form>
+
+<form method="POST" action="{{ url_for('routes.logout') }}" style="margin-top: 20px;">
+    <button type="submit" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">Выйти</button>
+</form>
+{% endblock %}
