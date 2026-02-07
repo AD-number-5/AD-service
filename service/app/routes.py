@@ -15,27 +15,21 @@ routes_bp = Blueprint("routes", __name__)
 @routes_bp.route("/register", methods=["GET", "POST"])
 def register():
     # TODO:
-    # - Validate input
-    # - Check username uniqueness
-    # - Hash password
-    # - Store new user in SQLite via SQLAlchemy
-    # - Return success / errors
+    # Реализовать регистрацию пользователя и выдачу JWT в cookie
     return jsonify({"status": "not implemented"}), 501
 
 
 @routes_bp.route("/login", methods=["GET", "POST"])
 def login():
     # TODO:
-    # - Validate input
-    # - Verify password hash
-    # - Issue JWT and set HttpOnly cookie
+    # Проверить хэш пароля и выдать JWT в cookie
     return jsonify({"status": "not implemented"}), 501
 
 
 @routes_bp.route("/logout", methods=["POST"])
 def logout():
     # TODO:
-    # - Unset JWT cookie
+    # Очистить cookie
     resp = jsonify({"status": "not implemented"})
     unset_jwt_cookies(resp)
     return resp, 501
@@ -45,8 +39,8 @@ def logout():
 @jwt_required()
 def index():
     # TODO:
-    # - Render "Hello {username}" page
-    # - Show upload form
+    # Главная страница. В зависимости от того, 
+    # аутентифицирован ли пользователь, пепенаправить на вход или показать главную страницу 
     _ = get_jwt_identity()
     return jsonify({"status": "not implemented"}), 501
 
@@ -55,12 +49,7 @@ def index():
 @jwt_required()
 def upload():
     # TODO:
-    # - Accept file
-    # - Validate size/type
-    # - Save original
-    # - Run pixelization via subprocess
-    # - Save result
-    # - Store Art record
+    # - Загрузить изображение из формы и сохранить его в папку uploaded, а затем запустить процесс генерации пиксель-арта (можно просто скопировать файл в папку pixel и назвать его так же, как оригинал)
     return jsonify({"status": "not implemented"}), 501
 
 
@@ -68,8 +57,7 @@ def upload():
 @jwt_required()
 def gallery():
     # TODO:
-    # - Fetch current user's arts
-    # - Render gallery view
+    # - Получить список сгенерированных пиксель-артов текущего пользователя
     return jsonify({"status": "not implemented"}), 501
 
 
@@ -77,6 +65,5 @@ def gallery():
 @jwt_required()
 def media(filename):
     # TODO:
-    # - Ensure requesting user owns the file
-    # - Serve file from storage
+    # - Убедиться, что запрашивающий пользователь владеет артом и в ответе вернуть его содержимое
     return jsonify({"status": "not implemented"}), 501
