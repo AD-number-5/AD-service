@@ -152,20 +152,20 @@ def upload():
             data = f.read()
     else:
         if not file or not filename:
-            flash("No file uploaded")
+            flash("Файл не выбран")
             return redirect(url_for("routes.index"))
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if ext not in ALLOWED_EXTENSIONS:
-            flash("Unsupported file type")
+            flash("Неподдерживаемый тип файла")
             return redirect(url_for("routes.index"))
         data = file.read()
         if len(data) > MAX_IMAGE_SIZE:
-            flash("File size exceeds limit of 5MB")
+            flash("Размер файла превышает 5 МБ")
             return redirect(url_for("routes.index"))
 
         original_name = f"{art_id_raw}.{ext}"
         if len(original_name.encode("utf-8")) > 512:
-            flash("Filename too long")
+            flash("Имя файла слишком длинное")
             return redirect(url_for("routes.index"))
         original_path = os.path.join(upload_dir, original_name)
         with open(original_path, "wb") as f:
@@ -184,8 +184,8 @@ def upload():
     db.session.add(art)
     db.session.commit()
 
-    flash("Image uploaded and pixelized")
-    return redirect(url_for("routes.index"))
+    flash("Изображение успешно загружено")
+    return {"filename": pixel_name}
 
 
 @routes_bp.route("/gallery", methods=["GET"])
