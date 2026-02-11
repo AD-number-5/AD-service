@@ -1,4 +1,5 @@
-from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
+import os
+from flask import Blueprint, render_template_string, request, jsonify, render_template, redirect, url_for, flash, send_from_directory
 from flask_jwt_extended import (
     create_access_token,
     set_access_cookies,
@@ -7,10 +8,14 @@ from flask_jwt_extended import (
     get_jwt_identity,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from models import db, User, Art
 
 
 routes_bp = Blueprint("routes", __name__)
+
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 
 
 @routes_bp.route("/register", methods=["GET", "POST"])
@@ -70,15 +75,24 @@ def logout():
 
 
 @routes_bp.route("/", methods=["GET"])
-@jwt_required()
+@jwt_required(optional=True)
 def index():
     user_id = get_jwt_identity()
+    if not user_id:
+        return redirect(url_for("routes.login"))
     user = User.query.get(int(user_id))
     if not user:
         resp = redirect(url_for("routes.login"))
         unset_jwt_cookies(resp)
         return resp
-    return render_template("index.html", username=user.username, description=user.description)
+    arts = Art.query.filter_by(user_id=user.id).order_by(Art.created_at.desc()).all()
+    wrap = render_template_string(f'пользователь с ником {user.username}')
+    return render_template(
+        "index.html",
+        username_wrap=wrap,
+        description=user.description,
+        arts=arts,
+    )
 
 
 @routes_bp.route("/profile", methods=["POST"])
@@ -100,21 +114,115 @@ def update_profile():
 @jwt_required()
 def upload():
     # TODO:
-    # - Загрузить изображение из формы и сохранить его в папку uploaded, а затем запустить процесс генерации пиксель-арта (можно просто скопировать файл в папку pixel и назвать его так же, как оригинал)
-    return jsonify({"status": "not implemented"}), 501
+    # - Загрузить изображение из формы и сохранить его в папку uploaded, а затем запустить процесс генерации пиксель-арта (можно просто скопировать файл в папку media и назвать его так же, как оригинал)
+    user_id = get_jwt_identity()
+    file = request.files.get("file")
+    filename = secure_filename(file.filename) if file else None
+    art_id_raw = request.form.get("art_id", "").strip()
+
+    base_dir = os.path.dirname(__file__)
+    upload_dir = os.path.join(base_dir, "uploaded")
+    media_dir = os.path.join(base_dir, "media")
+    os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs(media_dir, exist_ok=True)
+
+    if art_id_raw and not art_id_raw.isdigit():
+        flash("ID должен быть числом")
+        return redirect(url_for("routes.index"))
+
+    if not art_id_raw:
+        max_id = 0
+        for name in os.listdir(upload_dir):
+            base, ext = os.path.splitext(name)
+            if base.isdigit() and ext.lstrip(".").lower() in ALLOWED_EXTENSIONS:
+                max_id = max(max_id, int(base))
+        art_id_raw = str(max_id + 1)
+
+    existing_name = None
+    for name in os.listdir(upload_dir):
+        base, ext = os.path.splitext(name)
+        if base == art_id_raw and ext.lstrip(".").lower() in ALLOWED_EXTENSIONS:
+            existing_name = name
+            break
+
+    if existing_name:
+        original_name = existing_name
+        original_path = os.path.join(upload_dir, original_name)
+        with open(original_path, "rb") as f:
+            data = f.read()
+    else:
+        if not file or not filename:
+            flash("No file uploaded")
+            return redirect(url_for("routes.index"))
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ALLOWED_EXTENSIONS:
+            flash("Unsupported file type")
+            return redirect(url_for("routes.index"))
+        data = file.read()
+        if len(data) > MAX_IMAGE_SIZE:
+            flash("File size exceeds limit of 5MB")
+            return redirect(url_for("routes.index"))
+
+        original_name = f"{art_id_raw}.{ext}"
+        if len(original_name.encode("utf-8")) > 512:
+            flash("Filename too long")
+            return redirect(url_for("routes.index"))
+        original_path = os.path.join(upload_dir, original_name)
+        with open(original_path, "wb") as f:
+            f.write(data)
+
+    pixel_name = f"pixel_{original_name}"
+    pixel_path = os.path.join(media_dir, pixel_name)
+    with open(pixel_path, "wb") as f:
+        f.write(data)
+
+    art = Art(
+        user_id=int(user_id),
+        filename_original=original_name,
+        filename_pixel=pixel_name,
+    )
+    db.session.add(art)
+    db.session.commit()
+
+    flash("Image uploaded and pixelized")
+    return redirect(url_for("routes.index"))
 
 
 @routes_bp.route("/gallery", methods=["GET"])
 @jwt_required()
 def gallery():
-    # TODO:
-    # - Получить список сгенерированных пиксель-артов текущего пользователя
-    return jsonify({"status": "not implemented"}), 501
+    user_id = get_jwt_identity()
+    user = User.query.get(int(user_id))
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    arts = Art.query.filter_by(user_id=user.id).order_by(Art.created_at.desc()).all()
+    return jsonify(
+        {
+            "items": [
+                {
+                    "id": art.id,
+                    "original": art.filename_original,
+                    "pixel": art.filename_pixel,
+                    "created_at": art.created_at.isoformat(),
+                }
+                for art in arts
+            ]
+        }
+    )
 
 
 @routes_bp.route("/media/<path:filename>", methods=["GET"])
 @jwt_required()
 def media(filename):
-    # TODO:
-    # - Убедиться, что запрашивающий пользователь владеет артом и в ответе вернуть его содержимое
-    return jsonify({"status": "not implemented"}), 501
+    user_id = get_jwt_identity()
+    user = User.query.get(int(user_id))
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    art = Art.query.filter_by(user_id=user.id, filename_pixel=filename).first()
+    if not art:
+        return jsonify({"error": "Forbidden"}), 403
+
+    media_dir = os.path.join(os.path.dirname(__file__), "media")
+    return send_from_directory(media_dir, filename)

@@ -3,7 +3,17 @@
 {% block title %}Pixel Art Service{% endblock %}
 
 {% block content %}
-<h1 class="welcome">Привет, {{ username }}!</h1>
+<h1 class="welcome">Привет, {{ username_wrap }}!</h1>
+
+{% with messages = get_flashed_messages() %}
+    {% if messages %}
+        <div class="flash">
+            {% for message in messages %}
+                <div class="flash-item">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
 
 <h2>Профиль</h2>
 
@@ -23,6 +33,34 @@
     
     <button type="submit">Сохранить</button>
 </form>
+
+<h2>Создание пиксель-арта</h2>
+
+<form method="POST" action="{{ url_for('routes.upload') }}" enctype="multipart/form-data">
+    <div class="form-group">
+        <label for="file">Загрузить изображение:</label>
+        <input type="file" id="file" name="file" accept=".jpg,.jpeg,.png" required>
+    </div>
+    <button type="submit">Создать пиксель-арт</button>
+</form>
+
+<h2>Моя галерея</h2>
+
+{% if arts and arts|length > 0 %}
+    <div class="gallery">
+        {% for art in arts %}
+            <div class="gallery-item">
+                <img src="{{ url_for('routes.media', filename=art.filename_pixel) }}" alt="Pixel art">
+                <div class="gallery-meta">
+                    <div class="gallery-name">{{ art.filename_original }}</div>
+                    <div class="gallery-date">{{ art.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">Пока нет пиксель-артов. Загрузите первую картинку!</div>
+{% endif %}
 
 <form method="POST" action="{{ url_for('routes.logout') }}" style="margin-top: 20px;">
     <button type="submit" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">Выйти</button>

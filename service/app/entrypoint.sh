@@ -4,7 +4,7 @@ set -e
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$APP_DIR"
 
-mkdir -p uploaded static
+mkdir -p uploaded static media
 
 python3 - <<'PY'
 from app import create_app

@@ -1,7 +1,7 @@
 from datetime import timedelta
 import secrets
 from flask import Flask, redirect, url_for
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, unset_jwt_cookies
 from models import db
 from routes import routes_bp
 
@@ -17,21 +17,26 @@ def create_app():
     app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
     app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token"
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=12)
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
     db.init_app(app)
     jwt = JWTManager(app)
 
     @jwt.unauthorized_loader
     def unauthorized_callback(callback):
-        return redirect(url_for("routes.login"))
+        return "Forbidden", 403
 
     @jwt.invalid_token_loader
     def invalid_token_callback(callback):
-        return redirect(url_for("routes.login"))
+        resp = redirect(url_for("routes.login"))
+        unset_jwt_cookies(resp)
+        return resp
 
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_payload):
-        return redirect(url_for("routes.login"))
+        resp = redirect(url_for("routes.login"))
+        unset_jwt_cookies(resp)
+        return resp
 
     app.register_blueprint(routes_bp)
 
