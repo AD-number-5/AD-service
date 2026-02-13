@@ -1,4 +1,5 @@
 import os
+import socket
 from flask import Blueprint, render_template_string, request, jsonify, render_template, redirect, url_for, flash, send_from_directory
 from flask_jwt_extended import (
     create_access_token,
@@ -15,7 +16,49 @@ from models import db, User, Art
 routes_bp = Blueprint("routes", __name__)
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
+ALLOWED_EXTENSIONS = {"bmp"}
+NAME_LEN = 1000
+IN_CHUNK = 42000
+MAX_OUT = 42000
+
+
+def _recv_all_until_close(sock: socket.socket, max_bytes: int) -> bytes:
+    sock.settimeout(10)
+    out = bytearray()
+    while len(out) < max_bytes:
+        try:
+            chunk = sock.recv(min(4096, max_bytes - len(out)))
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        out.extend(chunk)
+    return bytes(out)
+
+
+def _pixelize_via_service(filename: str, bmp_data: bytes) -> bytes:
+    host = os.getenv("PIXELIZER_HOST", "pixelizer")
+    port = int(os.getenv("PIXELIZER_PORT", "8080"))
+
+    name_bytes = filename.encode("utf-8", "ignore")[:NAME_LEN]
+    name_block = name_bytes + b"\x00" * (NAME_LEN - len(name_bytes))
+
+    with socket.create_connection((host, port), timeout=5) as sock:
+        sock.sendall(name_block)
+
+        ok = sock.recv(3)
+        if not ok.startswith(b"OK"):
+            raise RuntimeError(f"pixelizer refused: {ok!r}")
+
+        for i in range(0, len(bmp_data), IN_CHUNK):
+            sock.sendall(bmp_data[i : i + IN_CHUNK])
+
+        out_bmp = _recv_all_until_close(sock, MAX_OUT)
+
+    if not out_bmp or out_bmp.startswith(b"E:"):
+        raise RuntimeError("pixelizer failed")
+
+    return out_bmp
 
 
 @routes_bp.route("/register", methods=["GET", "POST"])
@@ -149,7 +192,7 @@ def upload():
         original_name = existing_name
         original_path = os.path.join(upload_dir, original_name)
         with open(original_path, "rb") as f:
-            data = f.read()
+            pixel_data = f.read()
     else:
         if not file or not filename:
             flash("Файл не выбран")
@@ -170,11 +213,16 @@ def upload():
         original_path = os.path.join(upload_dir, original_name)
         with open(original_path, "wb") as f:
             f.write(data)
+        try:
+            pixel_data = _pixelize_via_service(original_name, data)
+        except (OSError, RuntimeError, ValueError) as exc:
+            flash(f"Ошибка пикселизации: {exc}")
+            return redirect(url_for("routes.index"))
 
     pixel_name = f"pixel_{original_name}"
     pixel_path = os.path.join(media_dir, pixel_name)
     with open(pixel_path, "wb") as f:
-        f.write(data)
+        f.write(pixel_data)
 
     art = Art(
         user_id=int(user_id),
