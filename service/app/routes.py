@@ -1,4 +1,5 @@
 import os
+import uuid
 import socket
 from flask import Blueprint, render_template_string, request, jsonify, render_template, redirect, url_for, flash, send_from_directory
 from flask_jwt_extended import (
@@ -18,46 +19,55 @@ MAX_IMAGE_SIZE = 5 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"bmp"}
 NAME_LEN = 1000
 IN_CHUNK = 42000
-MAX_OUT = 42000
 
-
-def _recv_all_until_close(sock: socket.socket, max_bytes: int) -> bytes:
-    sock.settimeout(10)
-    out = bytearray()
-    while len(out) < max_bytes:
-        try:
-            chunk = sock.recv(min(4096, max_bytes - len(out)))
-        except socket.timeout:
-            break
+def _recv_exactly(sock: socket.socket, n: int) -> bytes:
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
         if not chunk:
-            break
-        out.extend(chunk)
-    return bytes(out)
+            raise ConnectionError("EOF while reading")
+        buf.extend(chunk)
+    return bytes(buf)
 
+def _bmp_declared_size(data: bytes) -> int:
+    if len(data) < 6 or data[0:2] != b"BM":
+        raise ValueError("Not a BMP")
+    return int.from_bytes(data[2:6], "little", signed=False)
 
-def _pixelize_via_service(filename: str, bmp_data: bytes) -> bytes:
+def _pixelize_via_service(_filename_from_user: str, bmp_data: bytes) -> bytes:
     host = os.getenv("PIXELIZER_HOST", "pixelizer")
     port = int(os.getenv("PIXELIZER_PORT", "8080"))
 
-    name_bytes = filename.encode("utf-8", "ignore")[:NAME_LEN]
+    filename = f"{uuid.uuid4().hex}.bmp"
+    name_bytes = filename.encode("ascii")
     name_block = name_bytes + b"\x00" * (NAME_LEN - len(name_bytes))
 
+    declared = _bmp_declared_size(bmp_data) 
+    if declared > len(bmp_data):
+        raise ValueError(f"BMP header size ({declared}) > actual bytes ({len(bmp_data)})")
+    bmp_data = bmp_data[:declared]
+
     with socket.create_connection((host, port), timeout=5) as sock:
+        sock.settimeout(120) 
+
         sock.sendall(name_block)
 
-        ok = sock.recv(3)
-        if not ok.startswith(b"OK"):
-            raise RuntimeError(f"pixelizer refused: {ok!r}")
+        for off in range(0, len(bmp_data), IN_CHUNK):
+            sock.sendall(bmp_data[off:off + IN_CHUNK])
 
-        for i in range(0, len(bmp_data), IN_CHUNK):
-            sock.sendall(bmp_data[i : i + IN_CHUNK])
+        hdr6 = _recv_exactly(sock, 6)
+        if hdr6[0:2] != b"BM":
+            tail = b""
+            try:
+                tail = sock.recv(4096)
+            except socket.timeout:
+                pass
+            raise RuntimeError((hdr6 + tail).decode("utf-8", "replace"))
 
-        out_bmp = _recv_all_until_close(sock, MAX_OUT)
+        out_size = int.from_bytes(hdr6[2:6], "little", signed=False) 
+        out_rest = _recv_exactly(sock, out_size - 6)
+        return hdr6 + out_rest
 
-    if not out_bmp or out_bmp.startswith(b"E:"):
-        raise RuntimeError("pixelizer failed")
-
-    return out_bmp
 
 def secure_filename(filename: str) -> str:
     forbidden_chars = [
@@ -252,7 +262,8 @@ def upload():
     db.session.commit()
 
     flash("Изображение успешно загружено")
-    return {"filename": pixel_name}
+    return redirect(url_for("routes.index"))
+
 
 
 @routes_bp.route("/gallery", methods=["GET"])

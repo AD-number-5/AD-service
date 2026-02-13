@@ -38,8 +38,8 @@
 
 <form method="POST" action="{{ url_for('routes.upload') }}" enctype="multipart/form-data">
     <div class="form-group">
-        <label for="file">Загрузить изображение:</label>
-        <input type="file" id="file" name="file" accept=".jpg,.jpeg,.png" required>
+        <label for="file">Загрузить изображение формата .bmp:</label>
+        <input type="file" id="file" name="file" accept=".bmp" required>
     </div>
     <button type="submit">Создать пиксель-арт</button>
 </form>

@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 RUN mkdir -p uploaded static media \
+    && sed -i 's/\r$//' entrypoint.sh \
     && chmod 750 entrypoint.sh \
     && chown -R user:user /home/user/app
 
