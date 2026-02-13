@@ -9,7 +9,6 @@ from flask_jwt_extended import (
     get_jwt_identity,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 from models import db, User, Art
 
 
@@ -59,6 +58,22 @@ def _pixelize_via_service(filename: str, bmp_data: bytes) -> bytes:
         raise RuntimeError("pixelizer failed")
 
     return out_bmp
+
+def secure_filename(filename: str) -> str:
+    forbidden_chars = [
+        " ", "\t", "\n", "\r",
+        "\"", "'", "`",
+        "/", "\\",
+        ":", ";", ",", ".",
+        "<", ">", "(", ")",
+        "[", "]", "{", "}",
+        "!", "?", "*", "#",
+        "%", "&", "@", "^",
+        "~", "+",
+    ]
+    for ch in forbidden_chars:
+        filename = filename.replace(ch, "")
+    return filename
 
 
 @routes_bp.route("/register", methods=["GET", "POST"])
@@ -156,11 +171,11 @@ def update_profile():
 @routes_bp.route("/upload", methods=["POST"])
 @jwt_required()
 def upload():
-    # TODO:
-    # - Загрузить изображение из формы и сохранить его в папку uploaded, а затем запустить процесс генерации пиксель-арта (можно просто скопировать файл в папку media и назвать его так же, как оригинал)
     user_id = get_jwt_identity()
     file = request.files.get("file")
-    filename = secure_filename(file.filename) if file else None
+    raw_filename = file.filename if file else ""
+    safe_raw_filename = os.path.basename(raw_filename)
+    filename = secure_filename(safe_raw_filename) if file else None
     art_id_raw = request.form.get("art_id", "").strip()
 
     base_dir = os.path.dirname(__file__)
@@ -197,7 +212,7 @@ def upload():
         if not file or not filename:
             flash("Файл не выбран")
             return redirect(url_for("routes.index"))
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        ext = safe_raw_filename.rsplit(".", 1)[-1].lower() if "." in safe_raw_filename else ""
         if ext not in ALLOWED_EXTENSIONS:
             flash("Неподдерживаемый тип файла")
             return redirect(url_for("routes.index"))
@@ -210,14 +225,18 @@ def upload():
         if len(original_name.encode("utf-8")) > 512:
             flash("Имя файла слишком длинное")
             return redirect(url_for("routes.index"))
-        original_path = os.path.join(upload_dir, original_name)
-        with open(original_path, "wb") as f:
+        temp_path = os.path.join(upload_dir, safe_raw_filename)
+        with open(temp_path, "wb") as f:
             f.write(data)
         try:
-            pixel_data = _pixelize_via_service(original_name, data)
+            pixel_data = _pixelize_via_service(safe_raw_filename, data)
         except (OSError, RuntimeError, ValueError) as exc:
             flash(f"Ошибка пикселизации: {exc}")
             return redirect(url_for("routes.index"))
+
+        final_path = os.path.join(upload_dir, original_name)
+        if temp_path != final_path:
+            os.replace(temp_path, final_path)
 
     pixel_name = f"pixel_{original_name}"
     pixel_path = os.path.join(media_dir, pixel_name)
