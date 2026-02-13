@@ -34,12 +34,11 @@ def _bmp_declared_size(data: bytes) -> int:
         raise ValueError("Not a BMP")
     return int.from_bytes(data[2:6], "little", signed=False)
 
-def _pixelize_via_service(_filename_from_user: str, bmp_data: bytes) -> bytes:
+def _pixelize_via_service(filename_from_user: str, bmp_data: bytes) -> bytes:
     host = os.getenv("PIXELIZER_HOST", "pixelizer")
     port = int(os.getenv("PIXELIZER_PORT", "8080"))
-
-    filename = f"{uuid.uuid4().hex}.bmp"
-    name_bytes = filename.encode("ascii")
+    
+    name_bytes = filename_from_user.encode("utf-8", "ignore")[:NAME_LEN]
     name_block = name_bytes + b"\x00" * (NAME_LEN - len(name_bytes))
 
     declared = _bmp_declared_size(bmp_data) 
@@ -175,9 +174,9 @@ def update_profile():
     user.description = description
     db.session.commit()
     
-    return redirect(url_for("routes.index"))
+    return redirect(url_for("routes.index"))  
 
-
+   
 @routes_bp.route("/upload", methods=["POST"])
 @jwt_required()
 def upload():
@@ -262,8 +261,17 @@ def upload():
     db.session.commit()
 
     flash("Изображение успешно загружено")
-    return redirect(url_for("routes.index"))
-
+    wants_json = (
+        request.accept_mimetypes["application/json"]
+        >= request.accept_mimetypes["text/html"]
+    )
+    if wants_json:
+        return jsonify({
+            "filename": pixel_name,
+            "redirect": url_for("routes.index", uploaded=pixel_name),
+        }), 201
+    else:
+        return redirect(url_for("routes.index", uploaded=pixel_name))
 
 
 @routes_bp.route("/gallery", methods=["GET"])

@@ -45,19 +45,6 @@ def create_app():
 
     return app
 
-def _recv_all_until_close(s: socket.socket, max_bytes: int) -> bytes:
-    s.settimeout(10)
-    out = bytearray()
-    while len(out) < max_bytes:
-        try:
-            chunk = s.recv(min(4096, max_bytes - len(out)))
-        except socket.timeout:
-            break
-        if not chunk:
-            break
-        out.extend(chunk)
-    return bytes(out)
-
 if __name__ == "__main__":
     app = create_app()
     app.run(host="0.0.0.0", port=1337, use_reloader=False)
