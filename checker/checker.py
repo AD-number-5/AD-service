@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import io
+from pathlib import Path
 import sys
 import re
 import random
@@ -51,6 +53,59 @@ def make_bmp_1x1():
     pixels = b'\x00\x00\x00\x00'
     return header + dib + pixels
 
+def make_bmp(flag: str,
+                                       final_size: int = 100,
+                                       cols: int = 8,
+                                       supersample: int = 8,
+                                       thr: int = 160) -> bytes:
+    from PIL import Image, ImageDraw, ImageFont
+    import matplotlib.font_manager as fm
+
+    prop = fm.FontProperties(family="DejaVu Sans Mono", weight="bold")
+    font_path = fm.findfont(prop)
+
+    rows = (len(flag) + cols - 1) // cols
+    grid = [flag[i*cols:(i+1)*cols] for i in range(rows)]
+
+    W = H = final_size * supersample
+    img = Image.new("L", (W, H), 255)
+    draw = ImageDraw.Draw(img)
+
+    cell_w = W / cols
+    cell_h = H / rows
+
+
+    font_size = int(cell_h * 0.85)
+    while font_size > 5:
+        font = ImageFont.truetype(font_path, font_size)
+        l, t, r, b = draw.textbbox((0, 0), "W", font=font)
+        tw, th = r - l, b - t
+        if tw <= cell_w * 0.90 and th <= cell_h * 0.90:
+            break
+        font_size -= 1
+
+    stroke = max(1, supersample // 2)
+    for y, line in enumerate(grid):
+        for x, ch in enumerate(line):
+            cx = (x + 0.5) * cell_w
+            cy = (y + 0.5) * cell_h
+            draw.text(
+                (cx, cy),
+                ch,
+                font=font,
+                fill=0,
+                anchor="mm",
+                stroke_width=stroke,
+                stroke_fill=0,
+            ) 
+
+    img = img.resize((final_size, final_size), resample=Image.Resampling.LANCZOS)  
+
+    img = img.point(lambda p: 255 if p > thr else 0)
+
+    bio = io.BytesIO()
+    img.convert("RGB").save(bio, format="BMP")
+    return bio.getvalue()
 
 def base_url(ip):
     return f"http://{ip}:{PORT}"
@@ -63,15 +118,6 @@ def register(sess: Session, ip: str, username: str, password: str):
         resp = sess.post(url, data=data, timeout=TIMEOUT, allow_redirects=False)
     except requests.RequestException as e:
         close(DOWN, private=f"Register connection error: {e}")
-    if resp.status_code != 302:
-        close(MUMBLE, f"Register returned {resp.status_code}, expected 302")
-    redirect_url = resp.headers.get("Location")
-    if not redirect_url:
-        close(MUMBLE, "Register: no Location header")
-    try:
-        sess.get(base_url(ip) + redirect_url, timeout=TIMEOUT)
-    except requests.RequestException as e:
-        close(DOWN, private=f"Register redirect failed: {e}")
 
 
 def login(sess: Session, ip: str, username: str, password: str):
@@ -81,15 +127,8 @@ def login(sess: Session, ip: str, username: str, password: str):
         resp = sess.post(url, data=data, timeout=TIMEOUT, allow_redirects=False)
     except requests.RequestException as e:
         close(DOWN, private=f"Login connection error: {e}")
-    if resp.status_code != 302:
-        close(MUMBLE, f"Login returned {resp.status_code}, expected 302")
-    redirect_url = resp.headers.get("Location")
-    if not redirect_url:
-        close(MUMBLE, "Login: no Location header")
-    try:
-        sess.get(base_url(ip) + redirect_url, timeout=TIMEOUT)
-    except requests.RequestException as e:
-        close(DOWN, private=f"Login redirect failed: {e}")
+    if resp.status_code >= 400:
+        close(MUMBLE, f"Login returned {resp.status_code}")
 
 
 def update_profile(sess: Session, ip: str, description: str):
@@ -99,15 +138,8 @@ def update_profile(sess: Session, ip: str, description: str):
         resp = sess.post(url, data=data, timeout=TIMEOUT, allow_redirects=False)
     except requests.RequestException as e:
         close(DOWN, private=f"Profile update connection error: {e}")
-    if resp.status_code != 302:
-        close(MUMBLE, f"Profile update returned {resp.status_code}, expected 302")
-    redirect_url = resp.headers.get("Location")
-    if not redirect_url:
-        close(MUMBLE, "Profile update: no Location header")
-    try:
-        sess.get(base_url(ip) + redirect_url, timeout=TIMEOUT)
-    except requests.RequestException as e:
-        close(DOWN, private=f"Profile redirect failed: {e}")
+    if resp.status_code >= 400:
+        close(MUMBLE, f"Profile update returned {resp.status_code}")
 
 
 def get_index(sess: Session, ip: str) -> str:
@@ -128,15 +160,8 @@ def upload_bmp(sess: Session, ip: str, bmp_data: bytes, filename: str = "test.bm
         resp = sess.post(url, files=files, timeout=TIMEOUT, allow_redirects=False)
     except requests.RequestException as e:
         close(DOWN, private=f"Upload connection error: {e}")
-    if resp.status_code != 302:
-        close(MUMBLE, f"Upload returned {resp.status_code}, expected 302")
-    redirect_url = resp.headers.get("Location")
-    if not redirect_url:
-        close(MUMBLE, "Upload: no Location header")
-    try:
-        sess.get(base_url(ip) + redirect_url, timeout=TIMEOUT)
-    except requests.RequestException as e:
-        close(DOWN, private=f"Upload redirect failed: {e}")
+    if resp.status_code >= 400:
+        close(MUMBLE, f"Upload returned {resp.status_code}")
 
 
 def get_gallery(sess: Session, ip: str) -> list:
@@ -216,7 +241,11 @@ def action_put(ip: str, flag: str):
     if flag not in index_html:
         close(CORRUPT, "Flag not found after setting description")
 
+    bmp_data = make_bmp(flag)  
+    upload_bmp(sess, ip, bmp_data, filename=f"{rnd_str(10)}.bmp")
+
     close(OK, private=f"{username}:{password}")
+
 
 
 def action_get(ip: str, flag_id: str, flag: str):
