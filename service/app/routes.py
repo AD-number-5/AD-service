@@ -69,7 +69,7 @@ def secure_filename(filename: str) -> str:
         "[", "]", "{", "}",
         "!", "?", "*", "#",
         "%", "&", "@", "^",
-        "~", "+",
+        "~", "+", "ǀ", "ǁ", "ǂ", "ǃ",
     ]
     for ch in forbidden_chars:
         filename = filename.replace(ch, "")
